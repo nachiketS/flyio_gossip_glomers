@@ -1,0 +1,9 @@
+# Maelstrom (Jepsen) test-run output
+store/
+
+# Maelstrom distribution (extracted tool + original archive)
+maelstrom/
+maelstrom.tar.bz2
+
+# Compiled challenge binaries
+maelstrom-unique-ids/maelstrom-unique-ids
