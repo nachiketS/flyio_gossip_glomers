@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"log"
+	"log/slog"
 
 	maelstrom "github.com/jepsen-io/maelstrom/demo/go"
 )
@@ -12,28 +13,43 @@ func main() {
 
 	var broadcast_msg []any
 	var neighbors []string
+	seen := make(map[int]struct{})
+
+	// body = {"type": str, message: int, msg_id: any ?}
+	type RPCBody struct {
+		MsgID    any                 `json:"msg_id,omitempty"`
+		Message  int                 `json:"message"`
+		Type     string              `json:"type"`
+		Topology map[string][]string `json:"topology,omitempty"`
+	}
 
 	n.Handle("broadcast", func(msg maelstrom.Message) error {
 		// Unmarshal the message body as an loosely-typed map.
-		var body map[string]any
+		var body RPCBody
 		if err := json.Unmarshal(msg.Body, &body); err != nil {
 			return err
 		}
+		// bytes, _ := json.Marshal(body)
+		// var myDict map[string]any
+		// _ = json.Unmarshal(bytes, &myDict)
 
 		// Update the message type to return back.
-		body["type"] = "broadcast_ok"
+		response_map := make(map[string]string)
+		response_map["type"] = "broadcast_ok"
 
 		// Add to the list
-
-		broadcast_msg = append(broadcast_msg, body["message"])
-		for _, neighbor := range neighbors {
-			n.Send(neighbor, map[any]any{
-				"type": "broadcast", "message": body["message"],
-			})
+		
+		_, exists := seen[body.Message]
+		if !exists{
+			broadcast_msg = append(broadcast_msg, body.Message)
+			for _, neighbor := range neighbors {
+				n.Send(neighbor, map[any]any{
+					"type": "broadcast", "message": body.Message,
+				})
+			}
 		}
-		delete(body, "message")
 		// Echo the original message back with the updated message type.
-		return n.Reply(msg, body)
+		return n.Reply(msg, response_map)
 	})
 
 	n.Handle("read", func(msg maelstrom.Message) error {
@@ -55,28 +71,30 @@ func main() {
 
 	n.Handle("topology", func(msg maelstrom.Message) error {
 		// Unmarshal the message body as an loosely-typed map.
-		var body map[string]any
+		slog.Info("nachikets test")
+		var body RPCBody
 		if err := json.Unmarshal(msg.Body, &body); err != nil {
 			return err
 		}
+		// bytes, _ := json.Marshal(body)
+		// var myDict map[string]any
+		// _ = json.Unmarshal(bytes, &myDict)
 
-		//delete topology
-		if topology, ok := body["topology"].(map[string]any); ok {
-			// 2. Now you can safely index it!
-			neighbors, ok = topology[msg.Src].([]string)
-			if !ok {
-				log.Fatal("error")
-			}
-		} else {
-			log.Fatal("Topology bad")
-		}
+		neighbors = body.Topology[n.ID()]
+		// neighbors, ok = body.Topology[msg.Src].([]string)
+		// if !ok {
+		// 	log.Fatal("something went wrong with the topology?")
+		// }
+		// } else {
+		// 	log.Fatal("Topology bad")
+		// }
 
-		delete(body, "topology")
+		response_body := make(map[string]string)
 		// Update the message type to return back.
-		body["type"] = "topology_ok"
+		response_body["type"] = "topology_ok"
 
 		// Echo the original message back with the updated message type.
-		return n.Reply(msg, body)
+		return n.Reply(msg, response_body)
 	})
 
 	if err := n.Run(); err != nil {
