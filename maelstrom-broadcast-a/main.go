@@ -4,13 +4,14 @@ import (
 	"encoding/json"
 	"log"
 	"log/slog"
+	"sync"
 
 	maelstrom "github.com/jepsen-io/maelstrom/demo/go"
 )
 
 func main() {
 	n := maelstrom.NewNode()
-
+	var mu sync.Mutex
 	var broadcast_msg []any
 	var neighbors []string
 	seen := make(map[int]struct{})
@@ -38,18 +39,23 @@ func main() {
 		response_map["type"] = "broadcast_ok"
 
 		// Add to the list
-		
+		mu.Lock()
 		_, exists := seen[body.Message]
-		if !exists{
+		if !exists {
+			seen[body.Message] = struct{}{}
 			broadcast_msg = append(broadcast_msg, body.Message)
 			for _, neighbor := range neighbors {
-				n.Send(neighbor, map[any]any{
+				n.Send(neighbor, map[string]any{
 					"type": "broadcast", "message": body.Message,
 				})
 			}
 		}
+		mu.Unlock()
 		// Echo the original message back with the updated message type.
-		return n.Reply(msg, response_map)
+		if body.MsgID != nil {
+			return n.Reply(msg, response_map)
+		}
+		return nil
 	})
 
 	n.Handle("read", func(msg maelstrom.Message) error {
@@ -59,12 +65,13 @@ func main() {
 			return err
 		}
 
+		mu.Lock()
 		// Update the message type to return back.
 		body["type"] = "read_ok"
 
 		// Return the list
 		body["messages"] = broadcast_msg
-
+		mu.Unlock()
 		// Echo the original message back with the updated message type.
 		return n.Reply(msg, body)
 	})
@@ -79,7 +86,7 @@ func main() {
 		// bytes, _ := json.Marshal(body)
 		// var myDict map[string]any
 		// _ = json.Unmarshal(bytes, &myDict)
-
+		mu.Lock()
 		neighbors = body.Topology[n.ID()]
 		// neighbors, ok = body.Topology[msg.Src].([]string)
 		// if !ok {
@@ -92,7 +99,7 @@ func main() {
 		response_body := make(map[string]string)
 		// Update the message type to return back.
 		response_body["type"] = "topology_ok"
-
+		mu.Unlock()
 		// Echo the original message back with the updated message type.
 		return n.Reply(msg, response_body)
 	})
